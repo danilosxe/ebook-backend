@@ -129,16 +129,36 @@ router.get('/download/:id', async (req, res) => {
     if (!signedUrl) {
       return res.status(500).json({
         ok: false,
-        reason: 'Arquivo do e-book não configurado no servidor.'
+        reason: 'Arquivo não configurado no servidor.'
       });
     }
 
-    return res.redirect(302, signedUrl);
+    const arquivoResp = await fetch(signedUrl);
+    if (!arquivoResp.ok) {
+      return res.status(502).json({
+        ok: false,
+        reason: 'Falha ao obter o arquivo do armazenamento.'
+      });
+    }
+
+    const nomeArquivo = (process.env.SUPABASE_EBOOK_PATH || 'ebook.json')
+      .split('/')
+      .pop() || 'ebook.json';
+
+    const buffer = Buffer.from(await arquivoResp.arrayBuffer());
+
+    res.set({
+      'Content-Type': 'application/json; charset=utf-8',
+      'Content-Disposition': `attachment; filename="${nomeArquivo.replace(/"/g, '')}"`,
+      'Content-Length': buffer.length
+    });
+
+    return res.status(200).send(buffer);
   } catch (err) {
     console.error('[DOWNLOAD EBOOK] Erro ao liberar download:', err);
     return res.status(500).json({
       ok: false,
-      reason: 'Erro interno ao gerar download do e-book.'
+      reason: 'Erro interno ao gerar download.'
     });
   }
 });
