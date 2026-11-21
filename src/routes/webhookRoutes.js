@@ -1,10 +1,9 @@
 const express = require('express');
+const { salvarPedidoAprovado } = require('../services/pedidosStore');
 
 const router = express.Router();
 
-// Armazena os pedidos aprovados em memória.
-// Em ambiente gratuito do Render, reinícios limpam este Map; para produção persistente,
-// troque por banco externo (ex.: Supabase/Postgres ou Redis).
+// Armazena os pedidos aprovados em memória como cache rápido / fallback local.
 const pedidosAprovados = new Map();
 
 function getBaseUrl() {
@@ -76,12 +75,29 @@ router.post('/pagbank', async (req, res) => {
 
     if (referenceId && aprovado) {
       const chave = String(referenceId).trim();
-      pedidosAprovados.set(chave, {
+      const orderId = body.id || null;
+      const approvedAt = new Date().toISOString();
+
+      const registro = {
         status: 'PAID',
         referenceId: chave,
-        orderId: body.id || null,
-        approvedAt: new Date().toISOString()
-      });
+        orderId,
+        approvedAt
+      };
+
+      // 1. Atualiza memória local
+      pedidosAprovados.set(chave, registro);
+
+      // 2. Persiste no banco (Supabase / Redis) para sobreviver a reinícios do Render
+      try {
+        await salvarPedidoAprovado({
+          referenceId: chave,
+          orderId,
+          approvedAt
+        });
+      } catch (dbErr) {
+        console.error('[WEBHOOK PAGBANK] Falha ao persistir no banco (mantido em memória):', dbErr);
+      }
 
       console.log(`[WEBHOOK PAGBANK] Pedido aprovado e liberado: ${chave}`);
     } else {
