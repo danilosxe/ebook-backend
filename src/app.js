@@ -2,6 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const paymentRoutes = require('./routes/paymentRoutes');
 const checkoutRoutes = require('./routes/checkoutRoutes');
+const webhookRoutes = require('./routes/webhookRoutes');
 
 const app = express();
 
@@ -43,5 +44,6 @@ app.get('/health', (req, res) => {
 
 app.use('/api/payments', paymentRoutes);
 app.use('/api/checkout', checkoutRoutes);
+app.use('/api/webhook', webhookRoutes);
 
 module.exports = app;
