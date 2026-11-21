@@ -1,54 +1,44 @@
 const express = require('express');
-const path = require('path');
-const { consultarPagamento } = require('../services/pagbankService');
+const webhookRoutes = require('./webhookRoutes');
 
 const router = express.Router();
 
-// Em produção, substitua este Set por um banco (ex.: Supabase/Postgres ou Upstash Redis)
-const pagamentosUtilizados = new Set();
+const FORMATO_ID_REGEX = /^[A-Za-z0-9_-]{6,120}$/;
 
-router.get('/validar/:paymentId', async (req, res) => {
-  const { paymentId } = req.params;
+router.get('/validar/:id', (req, res) => {
+  const id = decodeURIComponent(String(req.params.id || '')).trim();
 
-  if (!/^\d+$/.test(paymentId)) {
-    return res.status(400).json({ valid: false, reason: 'ID de pagamento inválido.' });
+  if (!id || !FORMATO_ID_REGEX.test(id)) {
+    return res.status(400).json({
+      valid: false,
+      approved: false,
+      reason: 'ID de pagamento inválido.'
+    });
   }
 
-  if (pagamentosUtilizados.has(paymentId)) {
-    return res.status(409).json({ valid: false, reason: 'Pagamento já utilizado para resgate.' });
-  }
+  const registro = webhookRoutes.pedidosAprovados.get(id);
 
-  try {
-    const pagamento = await consultarPagamento(paymentId);
-
-    if (!pagamento || pagamento.status !== 'approved') {
-      return res.status(402).json({ valid: false, reason: 'Pagamento não aprovado.' });
-    }
-
-    // Opcional: conferir valor mínimo do e-book (ex.: 29.90)
-    // if (Number(pagamento.transaction_amount) < 29.9) { ... }
-
-    pagamentosUtilizados.add(paymentId);
+  if (registro && registro.status === 'PAID') {
+    const downloadUrl = process.env.EBOOK_DOWNLOAD_URL || null;
 
     return res.status(200).json({
       valid: true,
-      downloadUrl: `/api/payments/download/${paymentId}`
+      approved: true,
+      status: 'PAID',
+      referenceId: id,
+      orderId: registro.orderId || null,
+      approvedAt: registro.approvedAt,
+      downloadUrl
     });
-  } catch (err) {
-    console.error('Erro ao validar pagamento:', err);
-    return res.status(500).json({ valid: false, reason: 'Erro interno na validação.' });
-  }
-});
-
-router.get('/download/:paymentId', (req, res) => {
-  const { paymentId } = req.params;
-
-  if (!pagamentosUtilizados.has(paymentId)) {
-    return res.status(403).send('Acesso negado.');
   }
 
-  const filePath = path.join(__dirname, '../../ebooks/meu-ebook.pdf');
-  return res.download(filePath, 'ebook.pdf');
+  return res.status(200).json({
+    valid: true,
+    approved: false,
+    status: 'PENDING',
+    referenceId: id,
+    reason: 'Pagamento ainda não confirmado pelo webhook.'
+  });
 });
 
 module.exports = router;
