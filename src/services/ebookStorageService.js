@@ -2,7 +2,7 @@ async function criarLinkDownloadTemporario(expiresInSeconds = 120) {
   const baseUrl = String(process.env.SUPABASE_URL || '').replace(/\/+$/, '');
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   const bucket = process.env.SUPABASE_EBOOK_BUCKET || 'ebooks-privados';
-  const filePath = process.env.SUPABASE_EBOOK_PATH || 'meu-ebook.pdf';
+  const filePath = process.env.SUPABASE_EBOOK_PATH || 'meu-ebook.json';
 
   if (!baseUrl || !serviceKey) {
     // Fallback caso você use apenas EBOOK_DOWNLOAD_URL no servidor
