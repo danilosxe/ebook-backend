@@ -1,3 +1,4 @@
+const path = require('path');
 const express = require('express');
 const webhookRoutes = require('./webhookRoutes');
 const { buscarPedido } = require('../services/pedidosStore');
@@ -7,6 +8,14 @@ const router = express.Router();
 
 const FORMATO_ID_REGEX = /^[A-Za-z0-9_-]{6,120}$/;
 
+const MIME_TYPES = {
+  '.json': 'application/json; charset=utf-8',
+  '.zip': 'application/zip',
+  '.pdf': 'application/pdf',
+  '.txt': 'text/plain; charset=utf-8',
+  '.csv': 'text/csv; charset=utf-8'
+};
+
 function desativarCache(res) {
   res.set({
     'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
@@ -15,6 +24,34 @@ function desativarCache(res) {
     'Surrogate-Control': 'no-store'
   });
   res.removeHeader('ETag');
+}
+
+function resolverMetadadosArquivo() {
+  const origemPath =
+    process.env.SUPABASE_EBOOK_PATH ||
+    process.env.EBOOK_DOWNLOAD_URL ||
+    'ebook.pdf';
+
+  const caminhoLimpo = String(origemPath).split('?')[0];
+
+  const nomePadrao = path.basename(caminhoLimpo) || 'ebook.pdf';
+  const nomeCustomizado = process.env.EBOOK_DOWNLOAD_FILENAME
+    ? path.basename(String(process.env.EBOOK_DOWNLOAD_FILENAME).trim())
+    : nomePadrao;
+
+  const nomeSanitizado =
+    nomeCustomizado.replace(/["\r\n]/g, '').trim() || 'ebook.pdf';
+
+  const ext = path.extname(nomeSanitizado).toLowerCase();
+  const contentType =
+    MIME_TYPES[ext] ||
+    process.env.EBOOK_CONTENT_TYPE ||
+    'application/octet-stream';
+
+  return {
+    fileName: nomeSanitizado,
+    contentType
+  };
 }
 
 function normalizarRegistro(registroBanco, registroMemoria) {
@@ -67,7 +104,6 @@ router.get('/validar/:id', async (req, res) => {
     const registro = await obterPedidoValidado(id);
 
     if (registro && registro.status === 'PAID') {
-      // Aponta para a rota protegida do back-end em vez de expor URL estática do arquivo
       const baseBackendUrl =
         process.env.BACKEND_URL?.trim().replace(/\/+$/, '') ||
         'https://ebook-backend-vzb6.onrender.com';
@@ -141,15 +177,12 @@ router.get('/download/:id', async (req, res) => {
       });
     }
 
-    const nomeArquivo = (process.env.SUPABASE_EBOOK_PATH || 'ebook.json')
-      .split('/')
-      .pop() || 'ebook.json';
-
+    const { fileName, contentType } = resolverMetadadosArquivo();
     const buffer = Buffer.from(await arquivoResp.arrayBuffer());
 
     res.set({
-      'Content-Type': 'application/json; charset=utf-8',
-      'Content-Disposition': `attachment; filename="${nomeArquivo.replace(/"/g, '')}"`,
+      'Content-Type': contentType,
+      'Content-Disposition': `attachment; filename="${fileName}"; filename*=UTF-8''${encodeURIComponent(fileName)}`,
       'Content-Length': buffer.length
     });
 
