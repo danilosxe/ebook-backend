@@ -1,62 +1,67 @@
 const express = require('express');
-const crypto = require('crypto');
-const { criarCheckoutEbook } = require('../services/pagbankCheckoutService');
+const { criarCheckoutPagBank } = require('../services/pagbankCheckoutService');
+const { criarPedidoPixDireto } = require('../services/pagbankPixService');
 
 const router = express.Router();
 
-// Em produção, salve o pedido (referenceId) em banco para vincular ao webhook/entrega
-const pedidosCriados = new Map();
-
+// Opção 1: Checkout hospedado (Pix + Cartão)
 router.post('/', async (req, res) => {
   try {
-    const redirectUrl = process.env.REDIRECT_URL;
-    const notificationUrl = process.env.NOTIFICATION_URL;
+    const { nome, email, cpf } = req.body || {};
 
-    if (!redirectUrl || !notificationUrl) {
-      return res.status(500).json({
+    if (!nome || !email || !cpf) {
+      return res.status(400).json({
         ok: false,
-        reason: 'REDIRECT_URL ou NOTIFICATION_URL não configurados no servidor.'
+        error: 'Nome, e-mail e CPF são obrigatórios.'
       });
     }
 
-    // Você pode fixar preço e título aqui no back-end para ninguém alterar o valor no front-end
-    const tituloEbook = process.env.EBOOK_TITLE || 'Meu E-book Digital';
-    const precoCentavos = Number(process.env.EBOOK_PRICE_CENTS || 2990); // R$ 29,90
-
-    const referenceId = `EBOOK-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`;
-
-    const resultado = await criarCheckoutEbook({
-      title: tituloEbook,
-      unitAmountCentavos: precoCentavos,
-      referenceId,
-      redirectUrl,
-      notificationUrl
-    });
-
-    if (!resultado.ok) {
-      return res.status(resultado.statusHttp || 400).json({
-        ok: false,
-        reason: 'Não foi possível criar o checkout no PagBank.',
-        details: resultado.error
-      });
-    }
-
-    pedidosCriados.set(referenceId, {
-      checkoutId: resultado.checkoutId,
-      status: 'PENDING',
-      createdAt: new Date().toISOString()
-    });
+    const resultado = await criarCheckoutPagBank({ nome, email, cpf });
 
     return res.status(200).json({
       ok: true,
-      referenceId,
-      checkoutUrl: resultado.checkoutUrl
+      referenceId: resultado.referenceId,
+      checkoutId: resultado.checkoutId,
+      paymentUrl: resultado.paymentUrl
     });
   } catch (err) {
-    console.error('Erro na rota /api/checkout:', err);
-    return res.status(500).json({
+    console.error('[CHECKOUT] Erro:', err.detalhes || err);
+    return res.status(err.statusHttp || 500).json({
       ok: false,
-      reason: 'Erro interno ao gerar o link de pagamento.'
+      error: err.message || 'Erro ao iniciar checkout.',
+      detalhes: err.detalhes || null
+    });
+  }
+});
+
+// Opção 2: Pix direto (QR Code + Copia e Cola na própria página)
+router.post('/pix', async (req, res) => {
+  try {
+    const { nome, email, cpf } = req.body || {};
+
+    if (!nome || !email || !cpf) {
+      return res.status(400).json({
+        ok: false,
+        error: 'Nome, e-mail e CPF são obrigatórios.'
+      });
+    }
+
+    const pix = await criarPedidoPixDireto({ nome, email, cpf });
+
+    return res.status(200).json({
+      ok: true,
+      referenceId: pix.referenceId,
+      orderId: pix.orderId,
+      qrCodeText: pix.qrCodeText,
+      qrCodeImageUrl: pix.qrCodeImageUrl,
+      expirationDate: pix.expirationDate
+    });
+  } catch (err) {
+    console.error('[CHECKOUT PIX] Erro:', err.detalhes || err);
+    return res.status(err.statusHttp || 500).json({
+      ok: false,
+      error: err.message || 'Erro ao gerar Pix.',
+      detalhes: err.detalhes || null
     });
   }
 });
